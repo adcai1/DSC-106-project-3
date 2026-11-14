@@ -22,15 +22,16 @@ const W = 960, H = 470;
 const projection = d3.geoEqualEarth().fitExtent([[4, 4], [W - 4, H - 4]], { type: 'Sphere' });
 const path = d3.geoPath(projection);
 const svg = d3.select('#map').attr('viewBox', [0, 0, W, H]);
+const zoomLayer = svg.append('g').attr('class', 'zoom-layer');  
 const tooltip = d3.select('#tooltip');
+let borders;
 
 Promise.all([
   d3.json('cmip6_grid.json'),
-  d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json'),
+  d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'),
 ]).then(([grid, world]) => {
   data = grid;
   const nLon = grid.lons.length;
-  // One polygon per 5 degree cell. Rings run clockwise so d3-geo treats them as the small cell.
   cells = [];
   grid.lats.forEach((lat, i) => grid.lons.forEach((lon0, j) => {
     const lon = lon0 > 180 ? lon0 - 360 : lon0;
@@ -41,14 +42,19 @@ Promise.all([
     });
   }));
 
-  svg.append('path').attr('class', 'sphere').attr('d', path({ type: 'Sphere' }));
-  cellPaths = svg.append('g').selectAll('path').data(cells).join('path')
+  assignRegions(topojson.feature(world, world.objects.countries).features);
+
+  zoomLayer.append('path').attr('class', 'sphere').attr('d', path({ type: 'Sphere' }));
+  cellPaths = zoomLayer.append('g').selectAll('path').data(cells).join('path')
     .attr('class', 'cell')
     .attr('d', d => path(d.geo))
     .on('mousemove', showTooltip)
     .on('mouseleave', () => tooltip.attr('hidden', true))
     .on('click', (e, d) => { state.selected = d; update(); });
-  svg.append('path').attr('class', 'land')
+  // Country borders stay hidden at world scale and fade in as you zoom
+  borders = zoomLayer.append('path').attr('class', 'borders').attr('opacity', 0)
+    .attr('d', path(topojson.mesh(world, world.objects.countries, (a, b) => a !== b)));
+  zoomLayer.append('path').attr('class', 'land')
     .attr('d', path(topojson.feature(world, world.objects.land)));
 
   d3.select('#decade').attr('max', grid.decades.length - 1).property('value', state.decadeIdx);
@@ -59,6 +65,7 @@ Promise.all([
   // Default selection: a high Arctic cell so the chart is never empty on first load
   state.selected = cells.find(c => c.lat === 77.5 && c.lon === 47.5) || cells[0];
   wireControls();
+  wireZoom();
   update();
 }).catch(err => {
   d3.select('#subtitle').text('Could not load data: ' + err.message);
@@ -113,8 +120,8 @@ function drawChart() {
   const c = state.selected;
   const cw = 400, ch = 300, mg = { t: 12, r: 100, b: 28, l: 44 };
   const chart = d3.select('#chart').attr('viewBox', [0, 0, cw, ch]);
-  d3.select('#detail-title').text(`${m.name} at ${place(c)}`);
-  d3.select('#detail-sub').text('Solid: this cell. Dashed: global mean. Decadal means vs 1850-1900.');
+  d3.select('#detail-title').text(`${m.name}: ${regionLabel(c)}`);
+  d3.select('#detail-sub').text(`${place(c)}. Solid: this cell. Dashed: global mean. Decadal means vs 1850-1900.`);
 
   const series = SCEN.map(s => ({
     s,
@@ -161,14 +168,129 @@ function place(c) {
   return `${Math.abs(c.lat)}\u00b0${c.lat >= 0 ? 'N' : 'S'}, ${Math.abs(c.lon)}\u00b0${c.lon >= 0 ? 'E' : 'W'}`;
 }
 
+function regionLabel(c) {
+  return c.near ? `${c.region}, off ${c.near}` : c.region;
+}
+
 function showTooltip(event, d) {
   const m = MEASURE[state.measure];
   const v = value(state.measure, state.scen, state.decadeIdx, d.idx);
   const g = data.global[state.measure][state.scen][state.decadeIdx];
+  const where = d.near ? `off ${d.near} &middot; ${place(d)}` : place(d);
+
+  // How this cell compares with the planet as a whole
+  let note = '';
+  if (!Number.isNaN(v)) {
+    if (state.measure === 'tas' && g >= 0.5) {
+      note = `${d3.format('.1f')(v / g)}&times; the global mean`;
+    } else if (state.measure === 'pr' && Math.abs(v - g) >= 5) {
+      note = `${d3.format('.0f')(Math.abs(v - g))} pts ${v > g ? 'wetter' : 'drier'} than the global mean`;
+    }
+  }
+
   tooltip.attr('hidden', null)
-    .style('left', (event.clientX + 14) + 'px').style('top', (event.clientY + 14) + 'px')
-    .html(`<b>${place(d)}</b><br>${SCEN_NAME[state.scen]}, ${data.decades[state.decadeIdx]}s<br>` +
-      `${m.name}: <b>${Number.isNaN(v) ? 'n/a' : m.fmt(v) + m.unit}</b><br>Global mean: ${m.fmt(g)}${m.unit}`);
+    .html(`<div class="tt-region">${d.region}</div><div class="tt-sub">${where}</div>` +
+      `${SCEN_NAME[state.scen]}, ${data.decades[state.decadeIdx]}s<br>` +
+      `${m.name}: <b>${Number.isNaN(v) ? 'n/a' : m.fmt(v) + m.unit}</b><br>Global mean: ${m.fmt(g)}${m.unit}` +
+      (note ? `<div class="tt-note">${note}</div>` : ''));
+
+  // Flip to the other side of the cursor near the window edges so it never clips
+  const node = tooltip.node(), pad = 14;
+  const left = event.clientX + pad + node.offsetWidth > window.innerWidth ? event.clientX - pad - node.offsetWidth : event.clientX + pad;
+  const top = event.clientY + pad + node.offsetHeight > window.innerHeight ? event.clientY - pad - node.offsetHeight : event.clientY + pad;
+  tooltip.style('left', left + 'px').style('top', top + 'px');
+}
+
+// ---------- Region names for each grid cell ----------
+
+// Natural Earth abbreviates some names; spell out the ones that read badly in a tooltip
+const NAME_FIX = {
+  'United States of America': 'United States', 'Dem. Rep. Congo': 'DR Congo',
+  'Central African Rep.': 'Central African Republic', 'S. Sudan': 'South Sudan',
+  'Dominican Rep.': 'Dominican Republic', 'Eq. Guinea': 'Equatorial Guinea',
+  'Solomon Is.': 'Solomon Islands', 'Falkland Is.': 'Falkland Islands',
+  'Fr. S. Antarctic Lands': 'French Southern Lands', 'W. Sahara': 'Western Sahara',
+  'Bosnia and Herz.': 'Bosnia and Herzegovina', 'N. Cyprus': 'Northern Cyprus',
+};
+
+// Named seas checked before the broad ocean basins: [name, latMin, latMax, lonMin, lonMax].
+// lonMin > lonMax means the box crosses the antimeridian.
+const SEAS = [
+  ['Barents Sea', 69, 81, 15, 60],
+  ['Baltic Sea', 53, 66, 9, 30],
+  ['Black Sea', 40.5, 47, 27, 42],
+  ['Caspian Sea', 36, 47.5, 46, 55],
+  ['Mediterranean Sea', 30, 46, -6, 36],
+  ['Hudson Bay', 51, 64, -95, -77],
+  ['Great Lakes', 41, 49, -93, -76],
+  ['Gulf of Mexico', 18, 31, -98, -81],
+  ['Caribbean Sea', 9, 22, -88, -60],
+  ['Bering Sea', 52, 66, 162, -157],
+  ['South China Sea', 0, 23, 105, 121],
+  ['Bay of Bengal', 5, 22, 80, 95],
+  ['Arabian Sea', 5, 25, 50, 77],
+];
+
+function inLonRange(lon, lo, hi) {
+  return lo <= hi ? lon >= lo && lon <= hi : lon >= lo || lon <= hi;
+}
+
+function oceanName(lat, lon) {
+  const sea = SEAS.find(([, la0, la1, lo0, lo1]) => lat >= la0 && lat <= la1 && inLonRange(lon, lo0, lo1));
+  if (sea) return sea[0];
+  if (lat >= 66) return 'Arctic Ocean';
+  if (lat <= -60) return 'Southern Ocean';
+  if ((lat < 30 && lon >= 20 && lon < 100) || (lat < -10 && lon >= 100 && lon < 147)) return 'Indian Ocean';
+  if (lat >= 30 && lon >= 20 && lon < 100) return 'Inland waters';
+  const hemi = lat >= 0 ? 'North' : 'South';
+  // Atlantic's western edge moves with the shape of the Americas
+  const atlWest = lat > 17 ? -100 : lat > 8 ? -84 : -70;
+  if (lon >= atlWest && lon < 20) return `${hemi} Atlantic Ocean`;
+  return `${hemi} Pacific Ocean`;
+}
+
+// Tags each cell with .region (country or water body) and, for coastal water cells, .near (closest country).
+function assignRegions(countryFeatures) {
+  const countries = countryFeatures.map(f => ({
+    name: NAME_FIX[f.properties.name] || f.properties.name,
+    f,
+    b: d3.geoBounds(f),   
+  }));
+  const countryAt = (lon, lat) => {
+    const hit = countries.find(({ b, f }) =>
+      lat >= b[0][1] && lat <= b[1][1] && inLonRange(lon, b[0][0], b[1][0]) && d3.geoContains(f, [lon, lat]));
+    return hit ? hit.name : null;
+  };
+  const corners = [[-1.5, -1.5], [-1.5, 1.5], [1.5, -1.5], [1.5, 1.5]];
+  cells.forEach(c => {
+    const country = countryAt(c.lon, c.lat);
+    if (country) { c.region = country; c.near = null; return; }
+    c.region = oceanName(c.lat, c.lon);
+    c.near = null;
+    for (const [dx, dy] of corners) {
+      const hit = countryAt(c.lon + dx, c.lat + dy);
+      if (hit) { c.near = hit; break; }
+    }
+  });
+}
+
+// ---------- Zoom and pan ----------
+
+function wireZoom() {
+  const zoom = d3.zoom()
+    .scaleExtent([1, 8])
+    .translateExtent([[0, 0], [W, H]])   
+    .clickDistance(4)                     
+    .on('zoom', ({ transform }) => {
+      zoomLayer.attr('transform', transform);
+      borders.attr('opacity', Math.min(0.7, (transform.k - 1) / 2));
+      tooltip.attr('hidden', true);
+    });
+  svg.call(zoom);
+
+  d3.select('#zoom-in').on('click', () => svg.transition().duration(300).call(zoom.scaleBy, 1.6));
+  d3.select('#zoom-out').on('click', () => svg.transition().duration(300).call(zoom.scaleBy, 1 / 1.6));
+  d3.select('#zoom-reset').on('click', () => svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity));
 }
 
 function wireControls() {

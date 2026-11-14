@@ -37,12 +37,20 @@ button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
   max-width: 1200px; margin: 0 auto;
   display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(280px, 1fr); gap: 24px;
 }
-#map { width: 100%; height: auto; display: block; }
+#map-wrap { position: relative; }
+#map { width: 100%; height: auto; display: block; cursor: grab; }
+#map:active { cursor: grabbing; }
+/* Keep line widths constant on screen while the map is zoomed */
+#map .cell, #map .land, #map .borders, #map .sphere { vector-effect: non-scaling-stroke; }
 #map .cell { stroke-width: 0.6; }
 #map .cell:hover { stroke: var(--ink) !important; stroke-width: 1; }
 #map .cell.selected { stroke: var(--ink) !important; stroke-width: 2; }
 #map .land { fill: none; stroke: #222; stroke-width: 0.6; pointer-events: none; }
+#map .borders { fill: none; stroke: #222; stroke-width: 0.4; pointer-events: none; }
 #map .sphere { fill: none; stroke: var(--line); }
+.zoom-controls { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; }
+.zoom-controls button { width: 28px; height: 28px; padding: 0; font-size: 16px; line-height: 1; }
+.map-hint { margin: 6px 0 0; font-size: 12px; }
 #legend svg { display: block; }
 #legend text { font-size: 11px; fill: var(--muted); }
 
@@ -58,7 +66,11 @@ button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
   position: fixed; pointer-events: none; z-index: 10;
   background: #fff; border: 1px solid var(--line); border-radius: 4px;
   padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  max-width: 260px;
 }
+.tooltip .tt-region { font-weight: 600; font-size: 13px; }
+.tooltip .tt-sub { color: var(--muted); }
+.tooltip .tt-note { color: var(--accent); font-weight: 600; }
 
 @media (max-width: 860px) {
   body { padding: 16px; }

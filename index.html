@@ -33,7 +33,16 @@
   </section>
 
   <section class="viz">
-    <div id="map-wrap"><svg id="map"></svg><div id="legend"></div></div>
+    <div id="map-wrap">
+      <svg id="map"></svg>
+      <div class="zoom-controls" role="group" aria-label="Map zoom">
+        <button id="zoom-in" aria-label="Zoom in">+</button>
+        <button id="zoom-out" aria-label="Zoom out">&minus;</button>
+        <button id="zoom-reset" aria-label="Reset zoom" title="Reset view">&#8634;</button>
+      </div>
+      <div id="legend"></div>
+      <p class="hint map-hint">Scroll or pinch to zoom, drag to pan, double-click to zoom in. Hover a cell for details.</p>
+    </div>
     <div id="detail">
       <h2 id="detail-title">Click a grid cell</h2>
       <p id="detail-sub" class="hint">See how that place changes under each scenario, compared with the global mean.</p>
