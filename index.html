@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Two Futures, One Planet</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Two Futures, One Planet</h1>
+    <p class="question">Where does warming concentrate by 2100, and how much of it does our emissions path decide?</p>
+    <p class="subtitle" id="subtitle">Loading CMIP6 data...</p>
+  </header>
+
+  <section class="controls">
+    <div class="group" id="measure-group">
+      <span class="label">Measure</span>
+      <button data-measure="tas" class="active">Temperature</button>
+      <button data-measure="pr">Precipitation</button>
+    </div>
+    <div class="group" id="scenario-group">
+      <span class="label">Scenario</span>
+      <button data-scen="ssp126">SSP1-2.6 low</button>
+      <button data-scen="ssp245">SSP2-4.5 middle</button>
+      <button data-scen="ssp585" class="active">SSP5-8.5 high</button>
+    </div>
+    <div class="group slider-group">
+      <button id="play" aria-label="Play">&#9654;</button>
+      <input type="range" id="decade" min="0" max="24" step="1" value="24">
+      <span id="decade-label" class="decade-label">2090s</span>
+    </div>
+  </section>
+
+  <section class="viz">
+    <div id="map-wrap"><svg id="map"></svg><div id="legend"></div></div>
+    <div id="detail">
+      <h2 id="detail-title">Click a grid cell</h2>
+      <p id="detail-sub" class="hint">See how that place changes under each scenario, compared with the global mean.</p>
+      <svg id="chart"></svg>
+    </div>
+  </section>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+  <script src="main.js"></script>
+</body>
+</html>
